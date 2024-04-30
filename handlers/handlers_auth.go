@@ -37,7 +37,7 @@ func (lac *LocalApiConfig) SignInHandler(c *gin.Context) {
 		return
 	}
 
-	// validation
+	// insert validation here
 	validationErrors := utils.ValidateUserToAuth(userToAuth)
 	if len(validationErrors) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -141,9 +141,8 @@ func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID, err := c.Cookie("session_id")
 		if err != nil {
-			// handle missing or invalid cookie
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Unauthorized - No session",
+				"error": "Unautorized - no session",
 			})
 			return
 		}
@@ -157,11 +156,10 @@ func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 		}
 
 		var sessionData SessionData
-
 		err = json.Unmarshal([]byte(sessionDataJSON), &sessionData)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to decode the session data",
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Failed to decode the sessiondata",
 			})
 			return
 		}
@@ -181,6 +179,11 @@ func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 
 		c.Set("userId", sessionData.UserId)
 		c.Next()
-
 	}
+}
+
+func (lac *LocalApiConfig) HandlerAuthRoute(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Authenticated routes are working",
+	})
 }
