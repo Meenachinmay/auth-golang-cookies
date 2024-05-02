@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"log"
 	"os"
+	"time"
 )
 
 func main() {
@@ -71,8 +72,14 @@ func main() {
 	// Initialize the router
 	router := gin.Default()
 
-	// for the time being this line will allow all the origins.
-	router.Use(cors.Default())
+	// Configure CORS
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000"}, // Specify the exact origin of your Next.js app
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowCredentials: true, // Important: Must be true when credentials are included
+		MaxAge:           12 * time.Hour,
+	}))
 
 	authorized := router.Group("/")
 
@@ -86,6 +93,7 @@ func main() {
 	}
 
 	router.POST("/sign-in", localApiConfig.SignInHandler)
+	router.POST("/pusher/auth", localApiConfig.HandlerPusherAuth)
 	router.POST("/signup", localApiConfig.HandlerCreateUser)
 
 	log.Fatal(router.Run(":8080"))

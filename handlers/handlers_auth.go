@@ -9,11 +9,13 @@ import (
 	"github.com/google/uuid"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 type Claims struct {
-	Email string `json:"email"`
+	Email  string    `json:"email"`
+	UserId uuid.UUID `json:"userId"`
 	jwt.StandardClaims
 }
 
@@ -62,9 +64,10 @@ func (lac *LocalApiConfig) SignInHandler(c *gin.Context) {
 		return
 	}
 
-	expirationTime := time.Now().Add(10 * time.Minute)
+	expirationTime := time.Now().Add(60 * time.Minute)
 	claims := &Claims{
-		Email: userToAuth.Email,
+		Email:  userToAuth.Email,
+		UserId: foundUser.ID,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: expirationTime.Unix(),
 		},
@@ -104,10 +107,12 @@ func (lac *LocalApiConfig) SignInHandler(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("session_id", sessionID, int(time.Until(expirationTime).Seconds()), "/", "", false, true)
+	c.SetCookie("session_id", sessionID, int(time.Until(expirationTime).Seconds()), "/", "localhost", false, true)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
 		"expires": expirationTime,
+		"token":   tokenString,
 	})
 }
 
@@ -139,6 +144,19 @@ func (lac *LocalApiConfig) LogoutHandler(c *gin.Context) {
 
 func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var sessionID string
+		if c.Request.Method == "POST" && strings.HasPrefix(c.Request.URL.Path, "/pusher/auth") {
+			cookieVal, err := c.Request.Cookie("session_id")
+			if err == nil {
+				sessionID = cookieVal.Value
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error": "Unautorized - no session",
+				})
+				return
+			}
+		}
+
 		sessionID, err := c.Cookie("session_id")
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -159,7 +177,7 @@ func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 		err = json.Unmarshal([]byte(sessionDataJSON), &sessionData)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Failed to decode the sessiondata",
+				"error": "Failed to decode the session data",
 			})
 			return
 		}
