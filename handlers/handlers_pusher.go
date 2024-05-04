@@ -55,9 +55,18 @@ func (lac *LocalApiConfig) HandlerPusherAuth(c *gin.Context) {
 }
 
 func (lac *LocalApiConfig) HandlerCheckWS(c *gin.Context) {
-	data := map[string]string{"message": "Hello world"}
+	type NewLogin struct {
+		UserId   string `json:"userId"`
+		UserName string `json:"username"`
+	}
 
-	err := lac.PusherClient.Trigger("my-channel", "my-event", data)
+	// setup a new login struct to hold the struct data
+	newLogin := &NewLogin{
+		UserId:   "chinmay123",
+		UserName: "chinmay anand",
+	}
+
+	err := lac.PusherClient.Trigger("my-channel", "my-event", newLogin)
 	if err != nil {
 		fmt.Println(err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -121,5 +130,53 @@ func (lac *LocalApiConfig) HandlerSendMessage(c *gin.Context) {
 		"userId":      userId.String(),
 		"text":        message,
 		"channelName": channelName,
+	})
+}
+
+func (lac *LocalApiConfig) HandlerNotifySubscribed(c *gin.Context) {
+	type UserToNotify struct {
+		UserId uuid.UUID `json:"userId"`
+	}
+
+	var user UserToNotify
+
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "error to bind json data" + err.Error(),
+		})
+		return
+	}
+
+	// find user
+	_user, err := lac.DB.FindUserById(c, user.UserId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to find user" + err.Error(),
+		})
+		return
+	}
+
+	type NewLogin struct {
+		UserId   string `json:"userId"`
+		UserName string `json:"username"`
+	}
+
+	// setup a new login struct to hold the struct data
+	newLogin := &NewLogin{
+		UserId:   _user.ID.String(),
+		UserName: _user.Name,
+	}
+
+	err = lac.PusherClient.Trigger("myuser-login", "new-login", newLogin)
+	if err != nil {
+		fmt.Println(err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Data sent to real time pusher service for the client",
 	})
 }

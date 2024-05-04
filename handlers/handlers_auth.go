@@ -7,9 +7,9 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -107,12 +107,29 @@ func (lac *LocalApiConfig) SignInHandler(c *gin.Context) {
 		return
 	}
 
+	onlineUserData := map[string]interface{}{
+		"username": foundUser.Name,
+		"userId":   foundUser.ID.String(),
+	}
+	onlineUserDataJSON, err := json.Marshal(onlineUserData)
+
+	// Create a Redis key specifically for tracking loggedIn Users in real-time
+	onlineKey := "onlineUser:" + sessionID
+	err = lac.RedisClient.Set(c, onlineKey, onlineUserDataJSON, time.Until(expirationTime)).Err()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to mark user as online" + err.Error(),
+		})
+		return
+	}
+
 	c.SetCookie("session_id", sessionID, int(time.Until(expirationTime).Seconds()), "/", "localhost", false, true)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
 		"expires": expirationTime,
 		"token":   tokenString,
+		"userId":  foundUser.ID,
 	})
 }
 
@@ -137,6 +154,16 @@ func (lac *LocalApiConfig) LogoutHandler(c *gin.Context) {
 
 	c.SetCookie("session_id", "", -1, "/", "", false, true)
 
+	// removing online user tracking - for current user
+	onlineKey := "onlineUser:" + sessionID
+	err = lac.RedisClient.Del(c, onlineKey).Err()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to remove user from online users list",
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"error": "Logged out successfully",
 	})
@@ -144,23 +171,10 @@ func (lac *LocalApiConfig) LogoutHandler(c *gin.Context) {
 
 func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var sessionID string
-		if c.Request.Method == "POST" && strings.HasPrefix(c.Request.URL.Path, "/pusher/auth") {
-			cookieVal, err := c.Request.Cookie("session_id")
-			if err == nil {
-				sessionID = cookieVal.Value
-			} else {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error": "Unautorized - no session",
-				})
-				return
-			}
-		}
-
 		sessionID, err := c.Cookie("session_id")
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Unautorized - no session",
+				"error": "Unauthorized - no session",
 			})
 			return
 		}
@@ -203,5 +217,66 @@ func (lac *LocalApiConfig) AuthMiddleware() gin.HandlerFunc {
 func (lac *LocalApiConfig) HandlerAuthRoute(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Authenticated routes are working",
+	})
+}
+
+func (lac *LocalApiConfig) HandlerFetchActiveUsers(c *gin.Context) {
+	// Fetch all keys for online users
+	keys, err := lac.RedisClient.Keys(c, "onlineUser:*").Result()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch online users from Redis: " + err.Error(),
+		})
+		return
+	}
+
+	if len(keys) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"message":     "No online users found.",
+			"onlineUsers": []interface{}{},
+		})
+		return
+	}
+
+	// Use pipelining to fetch all user data at once
+	pipe := lac.RedisClient.Pipeline()
+	cmds := make([]*redis.StringCmd, len(keys))
+	for i, key := range keys {
+		cmds[i] = pipe.Get(c, key)
+	}
+	_, err = pipe.Exec(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch user data from Redis: " + err.Error(),
+		})
+		return
+	}
+
+	// Prepare a slice to hold user data
+	onlineUsers := make([]map[string]interface{}, 0, len(keys))
+
+	// Collect user data from pipeline results
+	for _, cmd := range cmds {
+		data, err := cmd.Result()
+		if err != nil {
+			continue // Optionally handle errors differently
+		}
+
+		var userData map[string]interface{}
+		err = json.Unmarshal([]byte(data), &userData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to fetch user data from Redis Pipeline: " + err.Error(),
+			})
+			return
+		}
+
+		onlineUsers = append(onlineUsers, userData)
+	}
+
+	// Send the collected online user data as JSON
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "OK",
+		"onlineUsers": onlineUsers,
 	})
 }
