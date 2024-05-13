@@ -142,41 +142,50 @@ func (lac *LocalApiConfig) HandlerNotifySubscribed(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "error to bind json data" + err.Error(),
+			"error": "error to bind userId" + err.Error(),
 		})
 		return
 	}
 
-	// find user
+	// find user from database
 	_user, err := lac.DB.FindUserById(c, user.UserId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to find user" + err.Error(),
+			"error": "NO USER FOUND ERROR",
 		})
 		return
 	}
 
 	type NewLogin struct {
+		Username string `json:"username"`
 		UserId   string `json:"userId"`
-		UserName string `json:"username"`
 	}
 
-	// setup a new login struct to hold the struct data
+	// setup a new login struct
 	newLogin := &NewLogin{
+		Username: _user.Name,
 		UserId:   _user.ID.String(),
-		UserName: _user.Name,
 	}
 
 	err = lac.PusherClient.Trigger("myuser-login", "new-login", newLogin)
 	if err != nil {
 		fmt.Println(err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
+			"error": "failed to trigger the pusher event" + err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Data sent to real time pusher service for the client",
+		"message": "Data send to client in real time",
 	})
 }
+
+// Basically this above method we will use to notify the backend one a user / client
+// successfully connected to a pusher channel.
+// sometimes there is a delay and if push/trigger a pusher event before a client subscription
+// in that client will miss the event and data, and we will not get any real time update
+// to avoid that problem at the client side i will be using "pusher:subscription_succeeded"
+// event and will HIT the notify-backend URL which will further HIT this method.
+
+// in some other video or may be in the client side explanation video I will explain this again.

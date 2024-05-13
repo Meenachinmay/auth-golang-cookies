@@ -109,12 +109,14 @@ func (lac *LocalApiConfig) SignInHandler(c *gin.Context) {
 
 	onlineUserData := map[string]interface{}{
 		"username": foundUser.Name,
-		"userId":   foundUser.ID.String(),
+		"userId":   foundUser.ID,
 	}
+
 	onlineUserDataJSON, err := json.Marshal(onlineUserData)
 
-	// Create a Redis key specifically for tracking loggedIn Users in real-time
+	// create a Redis key sepcifically for tracking loggedin Users in real-time
 	onlineKey := "onlineUser:" + sessionID
+
 	err = lac.RedisClient.Set(c, onlineKey, onlineUserDataJSON, time.Until(expirationTime)).Err()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -154,12 +156,12 @@ func (lac *LocalApiConfig) LogoutHandler(c *gin.Context) {
 
 	c.SetCookie("session_id", "", -1, "/", "", false, true)
 
-	// removing online user tracking - for current user
+	// remove the onlineUser key from the redis to handle conflict and data repeatition
 	onlineKey := "onlineUser:" + sessionID
 	err = lac.RedisClient.Del(c, onlineKey).Err()
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to remove user from online users list",
+			"error": "failed to remove online user from redis" + err.Error(),
 		})
 		return
 	}
@@ -220,25 +222,25 @@ func (lac *LocalApiConfig) HandlerAuthRoute(c *gin.Context) {
 	})
 }
 
-func (lac *LocalApiConfig) HandlerFetchActiveUsers(c *gin.Context) {
-	// Fetch all keys for online users
+func (lac *LocalApiConfig) HandlerFetchOnlineUsers(c *gin.Context) {
+	// fetch all the keys for online users
 	keys, err := lac.RedisClient.Keys(c, "onlineUser:*").Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch online users from Redis: " + err.Error(),
+			"error": "failed to fetch the keys from redis" + err.Error(),
 		})
 		return
 	}
 
 	if len(keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"message":     "No online users found.",
-			"onlineUsers": []interface{}{},
+			"message":     "No online users found",
+			"onlineUsers": nil,
 		})
 		return
 	}
 
-	// Use pipelining to fetch all user data at once
+	// use redis pipeline to fetch all user's data at once
 	pipe := lac.RedisClient.Pipeline()
 	cmds := make([]*redis.StringCmd, len(keys))
 	for i, key := range keys {
@@ -247,26 +249,26 @@ func (lac *LocalApiConfig) HandlerFetchActiveUsers(c *gin.Context) {
 	_, err = pipe.Exec(c)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch user data from Redis: " + err.Error(),
+			"error": "failed to fetch user's data from redis pipe" + err.Error(),
 		})
 		return
 	}
 
-	// Prepare a slice to hold user data
+	// prepare a slice to hold user data
 	onlineUsers := make([]map[string]interface{}, 0, len(keys))
 
-	// Collect user data from pipeline results
+	// get the data from the pipe to the slice
 	for _, cmd := range cmds {
 		data, err := cmd.Result()
 		if err != nil {
-			continue // Optionally handle errors differently
+			continue // you can handle the error here accordingly, i am leaving for later work
 		}
 
 		var userData map[string]interface{}
 		err = json.Unmarshal([]byte(data), &userData)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to fetch user data from Redis Pipeline: " + err.Error(),
+				"error": "failed to fetch unmarshal the data got from redis" + err.Error(),
 			})
 			return
 		}
@@ -274,7 +276,7 @@ func (lac *LocalApiConfig) HandlerFetchActiveUsers(c *gin.Context) {
 		onlineUsers = append(onlineUsers, userData)
 	}
 
-	// Send the collected online user data as JSON
+	// send to client
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "OK",
 		"onlineUsers": onlineUsers,
