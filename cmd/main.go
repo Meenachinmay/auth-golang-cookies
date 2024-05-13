@@ -74,7 +74,7 @@ func main() {
 
 	// Configure CORS
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "https://3d94-2405-1203-8320-5d00-b0c3-143-a6d5-8fb0.ngrok-free.app/"}, // Specify the exact origin of your Next.js app
+		AllowOrigins:     []string{"http://localhost:3000", "*"}, // Specify the exact origin of your Next.js app
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true, // Important: Must be true when credentials are included
@@ -97,6 +97,7 @@ func main() {
 	router.POST("/sign-in", localApiConfig.SignInHandler)
 	router.POST("/pusher/auth", localApiConfig.HandlerPusherAuth)
 	router.POST("/signup", localApiConfig.HandlerCreateUser)
+	router.POST("/send-email", localApiConfig.HandlerPasswordReset)
 
 	log.Fatal(router.Run(":8080"))
 }

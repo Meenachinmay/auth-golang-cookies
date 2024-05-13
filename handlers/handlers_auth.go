@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -280,5 +281,38 @@ func (lac *LocalApiConfig) HandlerFetchOnlineUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "OK",
 		"onlineUsers": onlineUsers,
+	})
+}
+
+func (lac *LocalApiConfig) HandlerPasswordReset(c *gin.Context) {
+
+	var emailType models.EmailType
+
+	if err := c.ShouldBindJSON(&emailType); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "failed to parse email type",
+		})
+		return
+	}
+
+	res, err := lac.HandlerSendEmail(emailType)
+	if err != nil {
+		log.Printf("error sending email: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to send email",
+		})
+		return
+	}
+
+	if res.StatusCode >= 300 {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "email service responded with an error: " + res.Body,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Email sent successfully",
+		"result":  res,
 	})
 }
