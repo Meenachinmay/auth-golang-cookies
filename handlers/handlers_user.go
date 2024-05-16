@@ -3,6 +3,9 @@ package handlers
 import (
 	"auth-golang-cookies/internal/config"
 	"auth-golang-cookies/internal/database"
+	"encoding/json"
+	"fmt"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"net/http"
@@ -11,6 +14,7 @@ import (
 
 type LocalApiConfig struct {
 	*config.ApiConfig
+	Producer *kafka.Producer
 }
 
 func (lac *LocalApiConfig) HandlerGetUser(c *gin.Context) {
@@ -50,6 +54,18 @@ func (lac *LocalApiConfig) HandlerCreateUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
+		return
+	}
+
+	// Produce a Kafka message
+	message, _ := json.Marshal(newUser)
+	topic := "user-signups"
+	err = lac.Producer.Produce(&kafka.Message{
+		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+		Value:          message,
+	}, nil)
+	if err != nil {
+		fmt.Printf("Produce message failed: %v\n", err)
 		return
 	}
 

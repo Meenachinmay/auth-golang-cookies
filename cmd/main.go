@@ -5,6 +5,7 @@ import (
 	"auth-golang-cookies/internal/config"
 	"auth-golang-cookies/internal/database"
 	"database/sql"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -17,6 +18,16 @@ import (
 )
 
 func main() {
+	// initialize the kafka
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers": "localhost:9092",
+	})
+
+	if err != nil {
+		log.Fatalf("failed creating producer: %s", err)
+	}
+	defer producer.Close()
+
 	// initialize the Redis here
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
@@ -25,7 +36,7 @@ func main() {
 	})
 
 	// Initialize the database here
-	err := godotenv.Load(".env")
+	err = godotenv.Load(".env")
 	if err != nil {
 		log.Fatal("Error loading env file.")
 	}
@@ -67,6 +78,7 @@ func main() {
 
 	localApiConfig := &handlers.LocalApiConfig{
 		ApiConfig: apiConfig,
+		Producer:  producer,
 	}
 
 	// Initialize the router
