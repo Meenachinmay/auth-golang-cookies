@@ -4,6 +4,7 @@ import (
 	"auth-golang-cookies/handlers"
 	"auth-golang-cookies/internal/config"
 	"auth-golang-cookies/internal/database"
+	"auth-golang-cookies/utils"
 	"database/sql"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/gin-contrib/cors"
@@ -27,6 +28,20 @@ func main() {
 		log.Fatalf("failed creating producer: %s", err)
 	}
 	defer producer.Close()
+
+	// initialize the kafka admin client
+	adminClient, err := kafka.NewAdminClientFromProducer(producer)
+	if err != nil {
+		log.Fatalf("failed to create admin client: %s", err)
+	}
+	defer adminClient.Close()
+
+	// create the topic if it doesn't exist
+	topic := "user-signups"
+	err = utils.CreateKafkaTopic(adminClient, topic)
+	if err != nil {
+		log.Fatalf("failed to create topic: %s", err)
+	}
 
 	// initialize the Redis here
 	redisClient := redis.NewClient(&redis.Options{

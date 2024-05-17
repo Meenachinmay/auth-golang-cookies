@@ -37,6 +37,25 @@ func main() {
 	}
 	defer consumer.Close()
 
+	// initialize a kafka consumer
+	adminClient, err := kafka.NewAdminClientFromConsumer(consumer)
+	if err != nil {
+		fmt.Printf("failed to create admin client: %s\n", err)
+		os.Exit(1)
+	}
+	defer adminClient.Close()
+
+	// get the list of all topics
+	topicMetadata, err := adminClient.GetMetadata(nil, true, 10000)
+	if err != nil {
+		fmt.Printf("failed to get metadata: %s\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("all topics in the cluster: ")
+	for _, topic := range topicMetadata.Topics {
+		fmt.Println(topic.Topic)
+	}
+
 	err = consumer.SubscribeTopics([]string{"user-signups"}, nil)
 	if err != nil {
 		fmt.Printf("Failed to create consumer: %s\n", err)
