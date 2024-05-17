@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Response struct {
@@ -17,6 +18,9 @@ type Response struct {
 	Body       string
 	Headers    map[string][]string
 }
+
+const maxRetries = 5
+const retryDelay = 10 * time.Second
 
 func main() {
 	// Print the SendGrid API Key (ensure it's being set correctly)
@@ -57,11 +61,22 @@ func main() {
 			continue
 		}
 
-		response, err := sendWelcomeEmail(newUser.Email)
-		if err != nil {
-			fmt.Printf("Failed to send welcome email to %s: %v\n", newUser.Email, err)
-		} else {
-			fmt.Printf("Welcome email sent to %s: %v\n", newUser.Email, response)
+		success := false
+		for retries := 0; retries < maxRetries; retries++ {
+			response, err := sendWelcomeEmail(newUser.Email)
+
+			if err != nil {
+				fmt.Printf("Failed to send welcome email to %s: %v\n", newUser.Email, err)
+				time.Sleep(retryDelay)
+			} else {
+				fmt.Printf("Welcome email sent to %s: %v\n", newUser.Email, response)
+				success = true
+				break
+			}
+		}
+
+		if !success {
+			fmt.Printf("Failed to send welcome email to %s after %d attempts\n: %v\n", newUser.Email, maxRetries, err)
 		}
 
 	}
