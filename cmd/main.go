@@ -37,7 +37,7 @@ func main() {
 	defer adminClient.Close()
 
 	// create the topic if it doesn't exist
-	topic := "user-signups"
+	topic := "new-user-signup"
 	err = utils.CreateKafkaTopic(adminClient, topic)
 	if err != nil {
 		log.Fatalf("failed to create topic: %s", err)

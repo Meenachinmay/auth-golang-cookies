@@ -3,6 +3,7 @@ package handlers
 import (
 	"auth-golang-cookies/models"
 	"auth-golang-cookies/utils"
+	"context"
 	"encoding/json"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -315,4 +317,116 @@ func (lac *LocalApiConfig) HandlerPasswordReset(c *gin.Context) {
 		"message": "Email sent successfully",
 		"result":  res,
 	})
+}
+
+func (lac *LocalApiConfig) SignInHandlerKafka(data []byte) RespondToKafkaConsumerMessage {
+	var userToAuth models.UserToAuth
+
+	if err := json.Unmarshal(data, &userToAuth); err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusBadRequest,
+			Message: gin.H{"error": err.Error()},
+		}
+	}
+
+	// insert validation here
+	validationErrors := utils.ValidateUserToAuth(userToAuth)
+	if len(validationErrors) > 0 {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusBadRequest,
+			Message: gin.H{"error": strings.Join(validationErrors, ", ")},
+		}
+	}
+
+	// fetch the user here from the database to check if user is existing or not
+	foundUser, err := lac.DB.FindUserByEmail(context.Background(), userToAuth.Email)
+	if err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusInternalServerError,
+			Message: gin.H{"error": "user not found" + err.Error()},
+		}
+	}
+
+	if foundUser.Password != userToAuth.Password {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusUnauthorized,
+			Message: gin.H{"error": "passwords don't match"},
+		}
+	}
+
+	expirationTime := time.Now().Add(60 * time.Minute)
+	claims := &Claims{
+		Email:  userToAuth.Email,
+		UserId: foundUser.ID,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+
+	if err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status: http.StatusInternalServerError,
+			Message: gin.H{
+				"error": "failed to create token" + err.Error(),
+			},
+		}
+	}
+
+	sessionID := uuid.New().String()
+
+	sessionData := map[string]interface{}{
+		"token":  tokenString,
+		"userId": foundUser.ID,
+	}
+
+	sessionDataJSON, err := json.Marshal(sessionData)
+
+	if err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusInternalServerError,
+			Message: gin.H{"error": "failed to encode session data" + err.Error()},
+		}
+	}
+
+	err = lac.RedisClient.Set(context.Background(), sessionID, sessionDataJSON, time.Until(expirationTime)).Err()
+	if err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusInternalServerError,
+			Message: gin.H{"error": "failed to save session data to redis" + err.Error()},
+		}
+	}
+
+	onlineUserData := map[string]interface{}{
+		"username": foundUser.Name,
+		"userId":   foundUser.ID,
+	}
+
+	onlineUserDataJSON, err := json.Marshal(onlineUserData)
+
+	// create a Redis key specifically for tracking logged Users in real-time
+	onlineKey := "onlineUser:" + sessionID
+
+	err = lac.RedisClient.Set(context.Background(), onlineKey, onlineUserDataJSON, time.Until(expirationTime)).Err()
+	if err != nil {
+		return RespondToKafkaConsumerMessage{
+			Status:  http.StatusInternalServerError,
+			Message: gin.H{"error": "failed to mark user online" + err.Error()},
+		}
+	}
+
+	//c.SetCookie("session_id", sessionID, int(time.Until(expirationTime).Seconds()), "/", "localhost", false, true)
+
+	return RespondToKafkaConsumerMessage{
+		Status: http.StatusOK,
+		Message: map[string]interface{}{
+			"message":   "Login successful",
+			"expires":   expirationTime,
+			"token":     tokenString,
+			"userId":    foundUser.ID,
+			"sessionId": sessionID,
+		},
+	}
 }

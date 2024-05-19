@@ -17,6 +17,16 @@ type LocalApiConfig struct {
 	Producer *kafka.Producer
 }
 
+type Request struct {
+	Action string      `json:"action"`
+	Data   interface{} `json:"data"`
+}
+
+type RespondToKafkaConsumerMessage struct {
+	Status  int         `json:"status"`
+	Message interface{} `json:"message"`
+}
+
 func (lac *LocalApiConfig) HandlerGetUser(c *gin.Context) {
 	type GetUserParameters struct {
 		ID uuid.UUID `json:"id"`
@@ -58,8 +68,8 @@ func (lac *LocalApiConfig) HandlerCreateUser(c *gin.Context) {
 	}
 
 	// Produce a Kafka message
-	message, _ := json.Marshal(newUser)
-	topic := "user-signups"
+	message, _ := json.Marshal(newUser.Email)
+	topic := "new-user-signup"
 	err = lac.Producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          message,
